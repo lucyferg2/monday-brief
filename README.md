@@ -1,130 +1,75 @@
-# Monday Issues — `issue-triage`
+# Monday Brief — `issue-triage`
 
-A command-line tool that gives an open-source maintainer a clearer, faster, more useful picture of their repo's issues than 30 seconds of scrolling GitHub. Run it on Monday morning, get back a brief.
-
-> Built as a Senior AI/ML Engineer take-home assessment. See [docs/plan.md](docs/plan.md) for the original plan and [docs/planning/2026-S01/bl-10-05--10-05-2026.md](docs/planning/2026-S01/bl-10-05--10-05-2026.md) for the live build backlog.
+A command-line tool that gives an open-source maintainer a clearer, faster, more useful picture of their repo's issues than 30 seconds of scrolling GitHub. Run it on Monday morning, get back a categorised, prioritised, summarised brief in four formats: Markdown, JSON, HTML, and a `run.json` reproducibility snapshot.
 
 ---
 
-## What it does
+## What it produces
 
-Given a public GitHub repo URL, the tool fetches issues from the past 7 days and produces a Monday brief covering two sections:
+For each run, the tool writes four files to `reports/<YYYY-MM-DD>/<owner>__<repo>/`:
 
-1. **§1 — This week's new issues** (opened in the past 7 days, still open). Each issue is categorised, prioritised, and summarised by an LLM.
-2. **§2 — FYI: ongoing activity** (open issues older than 7 days that gained new comments or reactions in the past 7 days). Same pipeline plus an extra step that reads the new activity and explains why the issue is gaining attention now.
+| File | What it is |
+|---|---|
+| `brief_DD-MM-YY.html` | Single-file styled report. Inline CSS, no JavaScript, opens offline in any browser. Sections: *About this brief* (collapsible explanation), *At a glance* (priority-grouped issue numbers as anchor links), *Themes this week* (cross-issue clusters), *New issues this week*, *Ongoing activity*, *Run details*. Sorted by priority within each section. |
+| `brief_DD-MM-YY.md` | Markdown with a priority-grouped TOC at the top. Same structure as the HTML; renders cleanly on GitHub, in VS Code's preview, or through pandoc. |
+| `brief_DD-MM-YY.json` | The canonical Pydantic dump. Designed for downstream tooling — all three brief renderers consume the same `Brief` object, so the formats can't drift apart. |
+| `run_DD-MM-YY.json` | Reproducibility snapshot: provider, model, prompt versions, token counts, duration, exit status, any injection warnings, parse failures, and ongoing-activity candidates that were skipped. |
 
-Output: three artefacts in `reports/<date>/<owner>__<repo>/`:
+The dated filenames mean a file survives being moved out of the date folder. At the start of each run, any non-today date folder under `reports/` is moved to `reports/archive/<date>/` so the top level always shows just today's runs plus an archive subfolder.
 
-- `brief_DD-MM-YY.md` — Markdown for reading
-- `brief_DD-MM-YY.json` — canonical structured data, intended for downstream tooling
-- `brief_DD-MM-YY.html` — single-file styled report you can open in any browser
-- `run_DD-MM-YY.json` — reproducibility snapshot (provider, model, prompt versions, tokens, duration, exit status)
+## Two sections, one pipeline
 
-The filenames carry the run date so they remain self-identifying after being moved (e.g. emailed as an attachment, dropped into a downloads folder). At the start of every run, any non-today date folder under `reports/` is moved to `reports/archive/<date>/`, so the top of `reports/` always shows just today's brief plus an `archive/` subfolder.
+- **New issues this week** — open issues opened in the past 7 days (configurable). Each one is categorised (`bug` / `feature` / `question` / `docs` / `other` by default, or whatever you configure), prioritised (`high` / `medium` / `low` with a one-sentence rationale), and given a 1–2 sentence neutral summary.
+- **Ongoing activity** — open issues older than 7 days that gained new comments in the past 7 days. The same three things, plus a *"why this is moving now"* line that interprets the new comments.
 
-## Status
+When there are enough new issues to cluster meaningfully (3+), a separate themes pass groups them into named clusters with linked issue numbers, rendered at the top of the brief as an executive summary.
 
-Pre-build. The architecture is locked, the backlog is written, and code lands per the [Sprint 1 backlog](docs/planning/2026-S01/bl-10-05--10-05-2026.md).
+## Quick start
 
-- [x] Brief read and interpretation chosen ("past 7 days" + two-section structure)
-- [x] Plan written and reviewed
-- [x] Architecture locked, backlog drafted with criteria + tests
-- [ ] Implementation (S1-T1.1 → S1-T1.9)
-- [ ] Writeup + AI collaboration log
-- [ ] Pre-submission checklist
+**Prerequisites:** Python 3.10+. An LLM tool, eg:
 
-## Stack
+- A Gemini API key from [https://aistudio.google.com/apikey](https://aistudio.google.com/apikey) (free tier covers small runs).
+- An Ollama Cloud API key from [https://ollama.com/settings/keys](https://ollama.com/settings/keys), *or* a local [Ollama](https://ollama.com) install.
 
-- **Python 3.10+**, CLI via `argparse`, data validation via Pydantic, HTTP via `httpx`, tests via `pytest`.
-- **LLM providers**: `GeminiProvider` (paid, used for development) and `OllamaProvider` (free + local *or* Ollama Cloud / authenticated self-hosted). Swappable via config — no source edits.
-- **No frontend.** HTML output is a single self-contained file (inline CSS, native `<details>`, no server).
-- **Style**: [Google Python Style Guide](docs/style-guide.md).
+A `GITHUB_TOKEN` is optional but strongly recommended — without it, GitHub's anonymous rate limit of 60 requests/hour can be exhausted by a single run against a busy repo.
 
-## Planned layout
-
-```
-issue-triage/
-├── README.md
-├── CLAUDE.md                   # project conventions for Claude Code
-├── pyproject.toml
-├── config.example.yaml
-├── maintainer_context.md       # editable; injected into the system prompt
-├── .env.example
-├── docs/
-│   ├── plan.md                 # original pre-build plan
-│   ├── style-guide.md          # link to Google Python Style Guide + house additions
-│   ├── writeup.md              # half-page reflection (graded)
-│   ├── ai-collaboration.md     # how the AI assistant was used (graded)
-│   └── planning/2026-S01/bl-…md
-├── src/issue_triage/
-│   ├── __main__.py             # CLI + logging + orchestration
-│   ├── config.py               # config + prompt loader
-│   ├── models.py               # Pydantic data classes
-│   ├── github.py               # GitHub API client
-│   ├── pipeline.py             # fetch → categorise → prioritise → render
-│   ├── render.py               # markdown / json / html / run.json
-│   ├── providers/
-│   │   ├── __init__.py         # ModelProvider ABC + factory
-│   │   ├── gemini.py
-│   │   └── ollama.py
-│   └── prompts/
-│       ├── categorise.md
-│       ├── prioritise.md
-│       ├── summarise.md
-│       └── new_activity.md     # §2-only — explains why the issue is moving now
-└── tests/
-    ├── conftest.py             # FakeProvider + shared fixtures
-    ├── fixtures/sample_issues.json
-    └── test_{cli,github,pipeline,providers,render,config}.py
-```
-
-## Key design choices (defended in the writeup)
-
-- **Workflow over agent loop.** The pipeline is a fixed sequence with structured outputs at every stage — auditable end-to-end.
-- **Provider abstraction with an ABC.** Adding a third provider is one new file + one factory branch.
-- **Prompts as markdown files** with YAML frontmatter (name, description, version, model preferences). A non-engineer can iterate on LLM behaviour without touching Python.
-- **No hardcoded model, no hardcoded taxonomy.** Both the model name and the categorisation set live in config — the maintainer owns what counts as relevant for their repo.
-- **Three outputs from one canonical data structure.** A `Brief` Pydantic model is the source of truth; `render.py` has three small functions that consume it.
-- **Bounded by transparency, not truncation.** The tool processes every issue meeting the time-window filter — it does **not** cap inputs to save cost. Instead it prints a pre-flight estimate of LLM calls / tokens / cost / duration and waits for user confirmation. `--yes` skips the prompt; `--max-cost <$>` adds a user-set hard ceiling. A pathological safety net (`safety_max_issues`, default 1000) halts before any LLM call if the input is wildly larger than expected.
-- **External content treated as untrusted.** Issue title / body / comment text fetched from GitHub is wrapped in `<issue id="…">…</issue>` delimiters before going into prompts; suspicious patterns are logged and recorded in `run.json`.
-
-## Quick start (will be filled in once the build lands)
-
-**Prerequisites**: Python 3.10+ and one of:
-
-- a Gemini API key ([create one](https://aistudio.google.com/apikey))
-- a local [Ollama](https://ollama.com) install, or an Ollama Cloud key
-
-A `GITHUB_TOKEN` is optional but strongly recommended — without it, GitHub's anonymous rate limit of 60 req/hr can be exhausted by a single run on a busy repo.
-
-### Set up
+### Install
 
 ```bash
 git clone https://github.com/lucyferg2/monday-brief
 cd monday-brief
 pip install -e .
-
-# Pick a provider in config.yaml — copy the example and edit:
-cp config.example.yaml config.yaml
-#    Open config.yaml, set: provider: gemini (or: ollama) and model: <name>
 ```
 
-### Set the env vars in your shell
+### Pick a provider in `config.yaml`
 
-The tool reads credentials from environment variables — no `.env` file is loaded automatically. Set what you need before running:
+```bash
+cp config.example.yaml config.yaml
+```
+
+Open `config.yaml`. The only fields you need to change to get started:
+
+```yaml
+provider: gemini           # or: ollama
+model: gemini-2.5-flash    # or any model your provider has access to
+```
+
+### Set credentials in your shell
+
+The tool reads credentials from environment variables — no `.env` file is loaded automatically.
 
 **PowerShell (Windows):**
 ```powershell
 $env:GITHUB_TOKEN = "ghp_..."
-$env:GEMINI_API_KEY = "..."           # only if provider: gemini
-$env:OLLAMA_API_KEY = "..."           # only if Ollama Cloud / authed self-hosted
+$env:GEMINI_API_KEY = "..."          # only if provider: gemini
+$env:OLLAMA_API_KEY = "..."          # only if Ollama Cloud / authed self-hosted
 ```
 
 **bash / zsh (macOS, Linux):**
 ```bash
 export GITHUB_TOKEN="ghp_..."
-export GEMINI_API_KEY="..."           # only if provider: gemini
-export OLLAMA_API_KEY="..."           # only if Ollama Cloud / authed self-hosted
+export GEMINI_API_KEY="..."          # only if provider: gemini
+export OLLAMA_API_KEY="..."          # only if Ollama Cloud / authed self-hosted
 ```
 
 ### Run
@@ -133,23 +78,128 @@ export OLLAMA_API_KEY="..."           # only if Ollama Cloud / authed self-hoste
 python -m issue_triage https://github.com/<owner>/<repo>
 ```
 
-The command takes one argument — the repo URL. The provider, model, lookback window and other knobs all come from `config.yaml`. CLI flags `--provider`, `--model`, `--lookback-days`, `--max-cost`, `--yes`, `--output-dir` exist as overrides for testing or scripting; you don't need them for normal runs.
+You'll see a fetch summary, a **pre-flight estimate** of expected LLM calls / tokens / cost / duration, and a `Proceed? [y/N]` prompt. Type `y` to continue or anything else to abort cleanly (no tokens spent).
 
-### Verifying the GitHub fetch
+When the run completes:
 
-GitHub's web UI doesn't directly distinguish "opened in the past N days" from "older issue with new comments in the past N days", which makes the §1 / §2 split hard to eyeball. `scripts/verify_fetch.py` runs the same fetch and prints each issue with timestamps and a clickable URL so the split can be checked manually:
+```
+Brief written to reports/2026-05-10/owner__repo/
+  brief_10-05-26.md      — Markdown for reading
+  brief_10-05-26.json    — canonical structured payload
+  brief_10-05-26.html    — single-file styled report
+  run_10-05-26.json      — reproducibility snapshot
+```
+
+Open the `.html` in any browser, or read the `.md` in your terminal.
+
+### Useful flags
+
+| Flag | What it does |
+|---|---|
+| `--lookback-days N` | Override the default 7-day window for both sections. |
+| `--max-cost <$>` | Abort before any LLM call if the pre-flight estimate exceeds this ceiling. |
+| `--yes` | Skip the pre-flight `[y/N]` prompt (for CI / scripted use). |
+| `--provider gemini\|ollama` | Override the provider declared in `config.yaml`. |
+| `--model <name>` | Override the model. |
+| `--output-dir <path>` | Override `reports/`. |
+| `-v / --verbose` | Lift the root logger to DEBUG to see HTTP requests and SDK traces. |
+
+Examples:
+
+```bash
+# Default Gemini run with a 14-day window
+python -m issue_triage https://github.com/owner/repo --lookback-days 14
+
+# Cost-capped run — aborts if the estimate exceeds 25 cents
+python -m issue_triage https://github.com/owner/repo --max-cost 0.25
+
+# Non-interactive Ollama run (e.g. from cron)
+python -m issue_triage https://github.com/owner/repo --provider ollama --yes
+```
+
+## Personalising the brief for your repo
+
+The tool ships with a generic [`maintainer_context.md`](maintainer_context.md) at the repo root. Its contents are injected into the LLM's system prompt on every call, so the brief reflects *your* maintainer perspective rather than the model's defaults.
+
+The default works for any repo. You'll get a more useful brief if you replace it with one or two lines about your project — for example:
+
+- *"This is a Python data-pipeline library used in production. Performance regressions in numeric code are the highest priority; feature requests can usually wait."*
+- *"Issues touching `auth/` or `crypto/` are security-sensitive — always flag them high regardless of reaction counts."*
+
+Edit `maintainer_context.md` directly; plain text only, no code changes needed.
+
+## Customising the categorisation taxonomy
+
+The default categories — `bug`, `feature`, `question`, `docs`, `other` — work for most projects. Override them in `config.yaml` to match your repo's labels:
+
+```yaml
+categories:
+  - { name: regression, description: "A previously-working feature now broken." }
+  - { name: bug, description: "Unexpected behaviour, never worked." }
+  - { name: enhancement, description: "Improvement to existing functionality." }
+  - { name: question, description: "Usage question." }
+  - { name: other, description: "Anything that doesn't fit above." }   # keep last — fallback
+```
+
+The LLM is constrained to choose exactly one of the configured names. If it ever emits something outside the set, the last entry (typically `other`) is used as a fallback and the issue is flagged in `run.json`.
+
+## Swapping providers
+
+The provider is config-driven. To use a different LLM with the same code:
+
+1. **Existing provider, different model**: change `model:` in `config.yaml`.
+2. **Different provider entirely**: drop a new file in `src/issue_triage/providers/` that subclasses `ModelProvider` and calls `register("<name>", <YourClass>)`. Then set `provider: <name>` in `config.yaml`. No edits to the CLI, the pipeline, or any other consumer.
+
+See the existing `gemini.py` and `ollama.py` for the contract — one method (`complete`) and credential handling that doesn't leak through `repr()`.
+
+## Verifying the GitHub fetch
+
+GitHub's web UI doesn't directly distinguish "opened in the past N days" from "older issue with new comments in the past N days", which makes the section split hard to eyeball. `scripts/verify_fetch.py` runs the same fetch the tool uses and prints each issue with timestamps and a clickable URL, so the split can be checked manually:
 
 ```bash
 python scripts/verify_fetch.py https://github.com/<owner>/<repo>          # default 7-day lookback
-python scripts/verify_fetch.py https://github.com/<owner>/<repo> 14       # 14-day lookback
+python scripts/verify_fetch.py https://github.com/<owner>/<repo> 14       # custom window
 ```
 
-Every §1 entry's `opened` timestamp should be after the printed cutoff; every §2 entry should be opened before the cutoff with at least one new comment after it.
+Every entry in *New issues this week* should have an `opened` timestamp **after** the printed cutoff; every entry in *Ongoing activity* should be opened **before** the cutoff with at least one new comment after it.
 
-### Personalising the brief for your repo
+`scripts/verify_provider.py` runs a one-shot smoke against the configured provider to confirm an API key or Ollama instance is reachable before kicking off a full pipeline.
 
-The tool ships with a generic [`maintainer_context.md`](maintainer_context.md) at the repo root. Its contents are injected into the system prompt of every LLM call, so the brief reflects *your* maintainer perspective rather than the model's defaults.
+## Project layout
 
-The default works for any repo. You'll get a better brief if you replace it with one or two lines about your project — e.g. *"this is a Python data-pipeline library; correctness regressions are the highest priority"*, or *"issues touching auth/ are security-sensitive and should always be flagged high"*. Edit it directly; plain text only, no code changes needed.
+```
+issue-triage/
+├── README.md, CLAUDE.md, pyproject.toml, .gitignore
+├── config.example.yaml, maintainer_context.md
+├── docs/
+│   ├── plan.md             # original pre-build plan
+│   ├── style-guide.md      # Google Python Style Guide pointer
+│   └── planning/2026-S01/  # sprint backlog
+├── src/issue_triage/
+│   ├── __main__.py         # CLI entry, logging setup, orchestration
+│   ├── config.py           # Config schema + prompt loader + URL parser
+│   ├── models.py           # Pydantic models (Issue, Brief, RunMetadata, …)
+│   ├── github.py           # GitHub client (paginated, rate-limit-aware)
+│   ├── pipeline.py         # render_prompt + call_llm + parse_response + orchestrator
+│   ├── render.py           # Markdown / JSON / HTML / run.json renderers
+│   ├── providers/
+│   │   ├── __init__.py     # ModelProvider ABC + factory + registry
+│   │   ├── gemini.py
+│   │   └── ollama.py
+│   └── prompts/            # five markdown prompts with YAML frontmatter
+└── scripts/                # verify_fetch.py, verify_provider.py
+```
 
-Examples and full flag reference will be added in [S1-T1.9](docs/planning/2026-S01/bl-10-05--10-05-2026.md#s1-t19--readme--writeup--ai-collaboration-log-docs).
+## Design principles (each defended in the writeup)
+
+- **Workflow over agent.** Fixed sequence with structured output at each stage. Auditable end-to-end.
+- **Bounded by transparency, not truncation.** The tool processes every issue meeting the lookback filter; cost is bounded by a pre-flight estimate and (optionally) `--max-cost`, not by capping inputs. The maintainer decides what spends.
+- **No silent skips.** Parse failures, unknown LLM-emitted categories, ongoing-activity follow-up failures — all surface in the brief with a flag, not by disappearing. Counts land in `run.json`.
+- **Single canonical data structure.** All three brief renderers consume the same `Brief` Pydantic object. Adding a fourth output format is one new function, not a new pipeline.
+- **Three-helper dispatch.** `render_prompt` (pure, template + injection scan) → `call_llm` (the only network-touching helper) → `parse_response` (validate against schema). Each independently testable.
+- **External content is untrusted.** Issue text wrapped in `<issue>…</issue>` delimiters; `</issue>` in the body is escaped before wrapping; suspicious patterns logged. HTML escape on every dynamic value; URL `href`s scheme-allowlisted; CSP meta tag for defence in depth.
+- **Credentials never leak.** API keys held inside SDK clients, not as provider attributes; a `logging.Filter` at startup scrubs known env-var values from any log record.
+
+## Stack
+
+Python 3.10+, `argparse`, Pydantic, `httpx`, `pyyaml`, `python-frontmatter`, `google-genai` (Gemini SDK). Tests via `pytest`. Style: [Google Python Style Guide](docs/style-guide.md).
