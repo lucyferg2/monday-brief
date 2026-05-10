@@ -19,6 +19,7 @@ stderr and a non-zero exit code — never a raw stack trace.
 
 import argparse
 import logging
+import shutil
 import sys
 from pathlib import Path
 
@@ -53,6 +54,12 @@ from issue_triage.providers import (
     ProviderError,
     ProviderUnavailable,
     build_provider,
+)
+from issue_triage.render import (
+    render_html,
+    render_json,
+    render_markdown,
+    render_run_metadata,
 )
 
 
@@ -153,6 +160,55 @@ def _apply_overrides(config: Config, args: argparse.Namespace) -> Config:
     if args.output_dir:
         updates["output_dir"] = args.output_dir
     return config.model_copy(update=updates) if updates else config
+
+
+def _merge_dir_into(src: Path, dst: Path) -> None:
+    """Move every entry under ``src`` into ``dst``, removing ``src`` when done.
+
+    Recurses on subdirectories so date / repo folders merge cleanly when
+    archiving. If a destination entry already exists it's overwritten —
+    archived runs supersede whatever was already there.
+    """
+    dst.mkdir(parents=True, exist_ok=True)
+    for entry in src.iterdir():
+        target = dst / entry.name
+        if entry.is_dir() and target.exists() and target.is_dir():
+            _merge_dir_into(entry, target)
+        else:
+            if target.exists():
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+            shutil.move(str(entry), str(target))
+    src.rmdir()
+
+
+def _archive_old_runs(output_dir: Path, today_folder_name: str) -> int:
+    """Move any non-today date folder under ``output_dir`` into ``archive/``.
+
+    Keeps ``reports/`` showing only today's runs at the top level; older
+    briefs accumulate under ``reports/archive/<date>/<repo>/``. Returns
+    the number of date folders moved (for the user-facing log line).
+    """
+    if not output_dir.exists():
+        return 0
+    archive_root = output_dir / "archive"
+    moved = 0
+    for entry in sorted(output_dir.iterdir()):
+        if not entry.is_dir():
+            continue
+        # Don't move the archive itself or today's folder.
+        if entry.name in {"archive", today_folder_name}:
+            continue
+        target = archive_root / entry.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            _merge_dir_into(entry, target)
+        else:
+            shutil.move(str(entry), str(target))
+        moved += 1
+    return moved
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -276,11 +332,41 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: provider call failed: {exc}", file=sys.stderr)
         return 1
 
-    # 5. T1.5 stops here. T1.6 will replace this with the proper
-    # multi-format renderer (Markdown / JSON / HTML / run.json files
-    # written under reports/<date>/<owner>__<repo>/). For now, print a
-    # JSON dump of the Brief so the assembled data is inspectable.
+    # 5. Render the four output files. The renderers are pure functions
+    # over the canonical Brief — no I/O. We do the file writing here.
+    #
+    # Filenames are dated (UK format: DD-MM-YY) so they survive being
+    # moved out of the date folder — a reviewer can tell at a glance
+    # which run a brief.html in their downloads folder belongs to.
+    # Folder structure stays ISO (YYYY-MM-DD) for sortable listing.
+    #
+    # Before writing, any non-today date folder under reports/ is
+    # moved into reports/archive/<date>/, so the top-level reports/
+    # folder always shows just today's runs plus an archive subfolder.
     rm = brief.run_metadata
+    date_folder = brief.generated_at.strftime("%Y-%m-%d")
+    date_suffix = brief.generated_at.strftime("%d-%m-%y")
+
+    archived = _archive_old_runs(config.output_dir, date_folder)
+    if archived:
+        print(
+            f"  Archived {archived} previous date folder"
+            f"{'' if archived == 1 else 's'} to "
+            f"{config.output_dir / 'archive'}/"
+        )
+
+    out_dir = config.output_dir / date_folder / f"{owner}__{repo}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    files = {
+        f"brief_{date_suffix}.md":   render_markdown(brief),
+        f"brief_{date_suffix}.json": render_json(brief),
+        f"brief_{date_suffix}.html": render_html(brief),
+        f"run_{date_suffix}.json":   render_run_metadata(rm),
+    }
+    for name, content in files.items():
+        (out_dir / name).write_text(content, encoding="utf-8")
+
     print(
         f"Pipeline complete. "
         f"calls={rm.llm_calls}  "
@@ -291,8 +377,11 @@ def main(argv: list[str] | None = None) -> int:
         f"injection_warnings={len(rm.injection_warnings)}"
     )
     print()
-    print("--- brief.json (preview — proper file output lands in T1.6) ---")
-    print(brief.model_dump_json(indent=2))
+    print(f"Brief written to {out_dir}/")
+    print(f"  brief_{date_suffix}.md      — Markdown for reading")
+    print(f"  brief_{date_suffix}.json    — canonical structured payload")
+    print(f"  brief_{date_suffix}.html    — single-file styled report")
+    print(f"  run_{date_suffix}.json      — reproducibility snapshot")
     return 0
 
 

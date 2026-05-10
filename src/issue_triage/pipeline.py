@@ -331,6 +331,7 @@ def _process_section_1(
         priority_rationale=(
             priority.rationale if priority else "(parse failure — see run.json)"
         ),
+        translated_title=(summary.translated_title if summary else None),
         parse_failure=parse_failed,
     )
 
@@ -388,6 +389,7 @@ def _process_section_2(
             activity.new_activity if activity else "(parse failure — see run.json)"
         ),
         new_comments_count=len(issue.new_comments),
+        translated_title=(summary.translated_title if summary else None),
         parse_failure=parse_failed,
     )
 

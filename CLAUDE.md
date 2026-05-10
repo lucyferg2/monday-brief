@@ -74,7 +74,8 @@ These are design-review decisions that aren't obvious from the task headlines. K
 
 ## Output and reporting
 
-- Each run writes to `reports/YYYY-MM-DD/<owner>__<repo>/` with: `brief.md`, `brief.json`, `brief.html`, `run.json`. The `<owner>__<repo>` path component is sanitised against `^[A-Za-z0-9][A-Za-z0-9._-]*$` before being used in the filesystem path.
+- Each run writes to `reports/YYYY-MM-DD/<owner>__<repo>/` with `brief_DD-MM-YY.md`, `brief_DD-MM-YY.json`, `brief_DD-MM-YY.html`, `run_DD-MM-YY.json`. Filenames carry the date in UK format so they remain self-identifying when moved out of the date folder; the folder is ISO-formatted for sortable listing. The `<owner>__<repo>` path component is sanitised against `^[A-Za-z0-9][A-Za-z0-9._-]*$` before being used in the filesystem path.
+- **Auto-archive on run.** At the start of each run, any non-today date folder under `reports/` is moved to `reports/archive/<date>/<owner>__<repo>/`. The top level always shows just today's runs plus the `archive/` subfolder; old briefs accumulate under archive without manual housekeeping.
 - `run.json` captures: timestamp, repo URL, provider name, model, prompt version map, lookback days, issue counts (§1 / §2), LLM call count, tokens in / out, duration, exit status, injection-pattern warnings, parse failures, §2 skipped (with reasons).
 - All three renderers (`render_markdown`, `render_json`, `render_html`) consume the same canonical `Brief` Pydantic object — single source of truth, no drift.
 - `brief.html` is single-file: inline CSS, minimal vanilla JS for collapsible `<details>` sections, no external assets.

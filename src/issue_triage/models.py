@@ -101,9 +101,25 @@ class CategoriseOutput(BaseModel):
 
 
 class SummariseOutput(BaseModel):
-    """What ``prompts/summarise.md`` returns. One field, intentionally."""
+    """What ``prompts/summarise.md`` returns.
+
+    ``translated_title`` is populated only when the original issue title
+    is in a language other than English. In the common (English) case
+    it stays ``None``. This means a maintainer scanning a brief from a
+    multilingual repo can read every title without leaving the page,
+    and all three rendered outputs (Markdown / JSON / HTML) include
+    the English version where helpful.
+    """
 
     summary: str = Field(min_length=1, max_length=500)
+    translated_title: str | None = Field(
+        default=None,
+        max_length=300,
+        description=(
+            "English translation of the issue title when the original is "
+            "in another language; null when the title is already English."
+        ),
+    )
 
 
 class PrioritiseOutput(BaseModel):
@@ -172,6 +188,10 @@ class PrioritisedIssue(BaseModel):
     summary: str
     priority: Literal["high", "medium", "low"]
     priority_rationale: str
+    # English translation of the title when the original isn't English;
+    # None means the title was already English. Populated by the
+    # summarise step (single source so it can't drift across renderers).
+    translated_title: str | None = None
     parse_failure: bool = False
 
 
@@ -190,6 +210,7 @@ class ActivitySpotlight(BaseModel):
     priority_rationale: str
     new_activity: str
     new_comments_count: int = 0
+    translated_title: str | None = None
     parse_failure: bool = False
 
 

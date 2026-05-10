@@ -15,10 +15,12 @@ Given a public GitHub repo URL, the tool fetches issues from the past 7 days and
 
 Output: three artefacts in `reports/<date>/<owner>__<repo>/`:
 
-- `brief.md` — Markdown for reading
-- `brief.json` — canonical structured data, intended for downstream tooling
-- `brief.html` — single-file styled report you can open in any browser
-- `run.json` — reproducibility snapshot (provider, model, prompt versions, tokens, duration, exit status)
+- `brief_DD-MM-YY.md` — Markdown for reading
+- `brief_DD-MM-YY.json` — canonical structured data, intended for downstream tooling
+- `brief_DD-MM-YY.html` — single-file styled report you can open in any browser
+- `run_DD-MM-YY.json` — reproducibility snapshot (provider, model, prompt versions, tokens, duration, exit status)
+
+The filenames carry the run date so they remain self-identifying after being moved (e.g. emailed as an attachment, dropped into a downloads folder). At the start of every run, any non-today date folder under `reports/` is moved to `reports/archive/<date>/`, so the top of `reports/` always shows just today's brief plus an `archive/` subfolder.
 
 ## Status
 
