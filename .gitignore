@@ -1,0 +1,96 @@
+# --- Secrets & env ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.credentials*
+
+# --- Take-home assessment materials (assessor IP, not for the public repo) ---
+docs/brief.md
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Type checking
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# --- Node / TypeScript ---
+node_modules/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.yarn/
+.npm/
+
+# Build output
+.next/
+.nuxt/
+.svelte-kit/
+.turbo/
+out/
+build/
+dist/
+
+# Vite / TS
+*.tsbuildinfo
+.vite/
+
+# --- IDE / OS ---
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Logs / temp ---
+logs/
+*.log
+tmp/
+temp/
