@@ -6,6 +6,9 @@
 *.key
 .credentials*
 
+# --- Per-user config (template ships as config.example.yaml) ---
+config.yaml
+
 # --- Take-home assessment materials (assessor IP, not for the public repo) ---
 docs/brief.md
 

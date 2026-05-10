@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "monday-brief"
+description = "A CLI tool that produces a Monday-morning brief of open issues for a public GitHub repository."
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Lucy Ferguson" }]
+dynamic = ["version"]
+
+# Runtime dependencies are pinned to compatible-version ranges (>=X.Y,<X+1).
+# Patch updates flow; breaking major-version changes do not.
+dependencies = [
+    "pydantic>=2.5,<3",            # data models + validation
+    "pyyaml>=6.0,<7",              # config.yaml loading
+    "python-dotenv>=1.0,<2",       # load .env at startup
+    "httpx>=0.27,<1",              # HTTP client (GitHub API + Ollama)
+    "google-genai>=1.0,<2",        # Gemini SDK
+    "python-frontmatter>=1.1,<2",  # parse the markdown prompt files
+]
+
+[project.optional-dependencies]
+# Test-time dependencies. Install with: pip install -e .[dev]
+dev = [
+    "pytest>=8.0,<9",
+]
+
+[project.scripts]
+issue-triage = "issue_triage.__main__:main"
+
+# --- Setuptools configuration ---
+
+[tool.setuptools.dynamic]
+version = { attr = "issue_triage.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+issue_triage = ["prompts/*.md"]
+
+# --- Pytest configuration ---
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# pythonpath lets pytest import `issue_triage` from src/ without requiring
+# `pip install -e .` first. Useful for fast local test runs.
+pythonpath = ["src"]
