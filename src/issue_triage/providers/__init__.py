@@ -159,3 +159,18 @@ def build_provider(config: Config) -> ModelProvider:
             f"that calls register('<name>', <ClassName>)."
         )
     return cls(config)
+
+
+# --- Auto-register the providers that ship with the tool ---------------
+#
+# These imports are deliberately at the bottom of the file: each
+# concrete provider module imports from this __init__ for the ABC and
+# error types, so we'd hit a circular import if we placed them at the
+# top. The side-effect we want is each module's call to ``register()``
+# at import time, which populates ``_REGISTRY`` so ``build_provider``
+# finds them.
+#
+# Adding a new provider: drop a new file in this directory that calls
+# ``register("<name>", <ClassName>)``, then add it to the import below.
+# That's it — no edits to Config, the CLI parser, or any consumer.
+from issue_triage.providers import gemini, ollama  # noqa: E402, F401
