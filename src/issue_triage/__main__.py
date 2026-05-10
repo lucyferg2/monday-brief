@@ -38,6 +38,8 @@ from issue_triage.config import (
     Config,
     InvalidRepoURL,
     load_config,
+    load_maintainer_context,
+    load_prompts,
     parse_repo_url,
 )
 from issue_triage.github import (
@@ -46,6 +48,16 @@ from issue_triage.github import (
     RateLimitError,
     TooManyIssuesError,
 )
+from issue_triage.pipeline import run_pipeline
+from issue_triage.providers import (
+    ProviderError,
+    ProviderUnavailable,
+    build_provider,
+)
+
+
+# The prompt files ship inside the package, alongside this module.
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
 _LOG = logging.getLogger("issue_triage")
@@ -159,18 +171,23 @@ def main(argv: list[str] | None = None) -> int:
 
     # Logging set up early so any error after this point is surfaced
     # consistently. The JSON-line formatter lands in T1.8.
+    #
+    # Provider-agnostic idiom for "show our logs but not the libraries'":
+    # the root logger sits at WARNING by default, so any third-party
+    # library — HTTP clients, LLM SDKs, anything — stays quiet without
+    # us having to enumerate specific names. This package's own logger
+    # sits at INFO (or DEBUG with --verbose). New dependencies inherit
+    # WARNING automatically; nothing in the CLI ever names a specific
+    # provider library. --verbose lifts the root level too so all
+    # third-party traces show up for debugging.
+    package_level = logging.DEBUG if args.verbose else logging.INFO
+    root_level = logging.DEBUG if args.verbose else logging.WARNING
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
+        level=root_level,
         format="%(message)s",
         stream=sys.stderr,
     )
-    # Quiet noisy third-party loggers — httpx logs every request at INFO
-    # by default, which clutters the user-facing output. Keep them at
-    # WARNING unless we're in --verbose mode (where the request trace
-    # is genuinely useful for debugging).
-    if not args.verbose:
-        logging.getLogger("httpx").setLevel(logging.WARNING)
-        logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("issue_triage").setLevel(package_level)
 
     try:
         owner, repo = parse_repo_url(args.url)
@@ -206,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  output:   {config.output_dir}")
     print()
 
-    # Fetch issues. Each known failure mode prints a clean line and exits 1.
+    # 1. Fetch issues. Each known failure mode prints a clean line and exits 1.
     try:
         with GitHubClient(config) as gh:
             new_issues, ongoing_activity = gh.fetch_issues(
@@ -225,7 +242,57 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  §1 new issues:        {len(new_issues)}")
     print(f"  §2 ongoing activity:  {len(ongoing_activity)}")
     print()
-    print("(fetch complete — LLM pipeline lands in T1.3+)")
+
+    if not new_issues and not ongoing_activity:
+        print("Nothing to brief on this week. Exiting cleanly.")
+        return 0
+
+    # 2. Load prompts and maintainer context.
+    prompts = load_prompts(_PROMPTS_DIR)
+    maintainer_context = load_maintainer_context(Path("maintainer_context.md"))
+
+    # 3. Build provider. Construction itself can fail (missing API key,
+    # Ollama unreachable) — surface those as clean errors.
+    try:
+        provider = build_provider(config)
+    except ProviderUnavailable as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    # 4. Run the pipeline.
+    print("Running LLM pipeline...")
+    try:
+        brief = run_pipeline(
+            new_issues=new_issues,
+            ongoing=ongoing_activity,
+            provider=provider,
+            prompts=prompts,
+            config=config,
+            maintainer_context=maintainer_context,
+            repo_full_name=f"{owner}/{repo}",
+            lookback_days=config.lookback_days,
+        )
+    except (ProviderError, ProviderUnavailable) as exc:
+        print(f"error: provider call failed: {exc}", file=sys.stderr)
+        return 1
+
+    # 5. T1.5 stops here. T1.6 will replace this with the proper
+    # multi-format renderer (Markdown / JSON / HTML / run.json files
+    # written under reports/<date>/<owner>__<repo>/). For now, print a
+    # JSON dump of the Brief so the assembled data is inspectable.
+    rm = brief.run_metadata
+    print(
+        f"Pipeline complete. "
+        f"calls={rm.llm_calls}  "
+        f"tokens=in:{rm.tokens_in} out:{rm.tokens_out}  "
+        f"duration={rm.duration_seconds}s  "
+        f"themes={len(brief.themes)}  "
+        f"parse_failures={len(rm.parse_failures)}  "
+        f"injection_warnings={len(rm.injection_warnings)}"
+    )
+    print()
+    print("--- brief.json (preview — proper file output lands in T1.6) ---")
+    print(brief.model_dump_json(indent=2))
     return 0
 
 

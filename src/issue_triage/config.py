@@ -21,8 +21,11 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
+import frontmatter
 import yaml
 from pydantic import BaseModel, Field, field_validator
+
+from issue_triage.models import Prompt
 
 
 # --- Sub-models --------------------------------------------------------
@@ -143,6 +146,52 @@ def load_config(path: Path) -> Config:
     # complaining about a None input.
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return Config.model_validate(raw)
+
+
+# --- Prompt loading ----------------------------------------------------
+
+def load_prompt(path: Path) -> Prompt:
+    """Load a single markdown prompt file (YAML frontmatter + body).
+
+    The frontmatter populates ``name`` / ``description`` / ``version`` /
+    ``model_preferences``; the body becomes the system-message template.
+    """
+    parsed = frontmatter.load(str(path))
+    return Prompt(
+        name=parsed.metadata.get("name", path.stem),
+        description=parsed.metadata.get("description", ""),
+        version=str(parsed.metadata.get("version", "0.1.0")),
+        model_preferences=parsed.metadata.get("model_preferences") or {},
+        body=parsed.content,
+    )
+
+
+def load_prompts(prompts_dir: Path) -> dict[str, Prompt]:
+    """Load all ``*.md`` prompt files in a directory, keyed by file stem.
+
+    Returns a dict like ``{"categorise": Prompt(...), "summarise": ...}``
+    so the pipeline can look prompts up by name.
+    """
+    return {
+        path.stem: load_prompt(path)
+        for path in sorted(prompts_dir.glob("*.md"))
+    }
+
+
+def load_maintainer_context(path: Path) -> str:
+    """Load the maintainer's context preamble.
+
+    Args:
+        path: Path to ``maintainer_context.md`` (typically at the repo root).
+
+    Returns:
+        The file's contents as a string. Returns empty string if the file
+        is missing — the prompts handle this gracefully via the template
+        default in ``render_prompt``.
+    """
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8").strip()
 
 
 # --- URL parsing -------------------------------------------------------

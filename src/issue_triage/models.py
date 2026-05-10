@@ -17,9 +17,27 @@ Three categories of model live here:
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+
+# --- Prompt files (loaded from src/issue_triage/prompts/) --------------
+
+class Prompt(BaseModel):
+    """A loaded markdown prompt file: frontmatter metadata + body.
+
+    The body is a ``string.Template``-style template with $-placeholders
+    (``$maintainer_context``, ``$categories``, etc.) that the pipeline
+    substitutes at call time. $-style is used in preference to f-style
+    so JSON examples and braces inside the prompt don't conflict.
+    """
+
+    name: str
+    description: str = ""
+    version: str = "0.1.0"
+    model_preferences: dict[str, Any] = {}
+    body: str  # the system-message template
 
 
 # --- Inputs (from the GitHub client) -----------------------------------
@@ -94,16 +112,29 @@ class PrioritiseOutput(BaseModel):
     ``priority`` is a ``Literal`` so the LLM is constrained to exactly
     these three values (in schema mode) or rejected at parse time
     (in free-text fallback).
+
+    The ``rationale`` max length is set well above what the prompt asks
+    for (≤ 200 chars). The prompt guides the LLM toward a short
+    rationale; the schema acts as a safety net against truly runaway
+    output rather than as a strict style enforcer — getting an issue
+    booted from the brief because its rationale was 305 chars instead
+    of 300 is bad UX.
     """
 
     priority: Literal["high", "medium", "low"]
-    rationale: str = Field(min_length=1, max_length=300)
+    rationale: str = Field(min_length=1, max_length=500)
 
 
 class NewActivityOutput(BaseModel):
-    """What ``prompts/new_activity.md`` returns. §2 only."""
+    """What ``prompts/new_activity.md`` returns. §2 only.
 
-    new_activity: str = Field(min_length=1, max_length=400)
+    Same length philosophy as ``PrioritiseOutput.rationale``: the
+    prompt asks for one short sentence, the schema allows more
+    headroom so reasonable LLM outputs aren't rejected on a few
+    extra characters.
+    """
+
+    new_activity: str = Field(min_length=1, max_length=600)
 
 
 class Theme(BaseModel):

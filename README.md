@@ -144,4 +144,10 @@ python scripts/verify_fetch.py https://github.com/<owner>/<repo> 14       # 14-d
 
 Every §1 entry's `opened` timestamp should be after the printed cutoff; every §2 entry should be opened before the cutoff with at least one new comment after it.
 
+### Personalising the brief for your repo
+
+The tool ships with a generic [`maintainer_context.md`](maintainer_context.md) at the repo root. Its contents are injected into the system prompt of every LLM call, so the brief reflects *your* maintainer perspective rather than the model's defaults.
+
+The default works for any repo. You'll get a better brief if you replace it with one or two lines about your project — e.g. *"this is a Python data-pipeline library; correctness regressions are the highest priority"*, or *"issues touching auth/ are security-sensitive and should always be flagged high"*. Edit it directly; plain text only, no code changes needed.
+
 Examples and full flag reference will be added in [S1-T1.9](docs/planning/2026-S01/bl-10-05--10-05-2026.md#s1-t19--readme--writeup--ai-collaboration-log-docs).
