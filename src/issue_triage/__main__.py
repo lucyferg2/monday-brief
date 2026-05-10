@@ -19,9 +19,45 @@ stderr and a non-zero exit code — never a raw stack trace.
 
 import argparse
 import logging
+import os
 import shutil
 import sys
 from pathlib import Path
+
+
+# Env-var names whose values should never appear in log output.
+# Listed by NAME, not value — the redaction filter resolves them at
+# emit time, so this list stays env-agnostic and provider-agnostic.
+_REDACTED_ENV_VARS = (
+    "GITHUB_TOKEN",
+    "GEMINI_API_KEY",
+    "OLLAMA_API_KEY",
+)
+
+
+class _RedactingFilter(logging.Filter):
+    """Scrub known credential env-var values from any log record.
+
+    Defence in depth: the codebase already avoids logging credentials
+    directly, but third-party libraries can include request data in
+    their warnings / exceptions. This filter runs against every record
+    before it's emitted and replaces any occurrence of a configured
+    credential value with ``[REDACTED]``.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        for name in _REDACTED_ENV_VARS:
+            value = os.environ.get(name)
+            if value and value in message:
+                # Overwrite both the cached message and the formatting
+                # inputs so str(record) on any downstream handler also
+                # sees the redacted form.
+                redacted = message.replace(value, "[REDACTED]")
+                record.msg = redacted
+                record.args = ()
+                message = redacted
+        return True
 
 # Issue titles, comment bodies and LLM rationales contain Unicode
 # (emoji, non-ASCII names, code points outside cp1252). Force the CLI's
@@ -211,6 +247,117 @@ def _archive_old_runs(output_dir: Path, today_folder_name: str) -> int:
     return moved
 
 
+# --- Pre-flight estimate -----------------------------------------------
+
+# Rough constants for the ballpark estimate. Derived empirically from a
+# real run on firebase/firebase-js-sdk: ~26.7k input tokens / ~1.7k
+# output tokens across 34 calls → ~785 tokens in and ~50 out per call.
+# Rounded up for headroom; pre-flight is intentionally a ballpark.
+_AVG_TOKENS_IN_PER_CALL = 1000
+_AVG_TOKENS_OUT_PER_CALL = 100
+_AVG_DURATION_PER_CALL_S = 3.0
+
+
+def _estimate_run(
+    new_count: int, ongoing_count: int, config: Config,
+) -> dict:
+    """Compute a rough pre-flight estimate of LLM calls / tokens / cost / duration.
+
+    The estimate is a ballpark — useful for distinguishing a $0.05 run
+    from a $5 run, not a billing-grade prediction. Cost is ``None`` when
+    pricing isn't configured for the chosen model.
+    """
+    # 3 calls per §1 (categorise + summarise + prioritise); +1 for §2
+    # entries (new_activity). +1 for the cross-issue themes pass when
+    # §1 has 3+ items.
+    calls = 3 * new_count + 4 * ongoing_count
+    if new_count >= 3:
+        calls += 1
+
+    tokens_in = calls * _AVG_TOKENS_IN_PER_CALL
+    tokens_out = calls * _AVG_TOKENS_OUT_PER_CALL
+
+    pricing = config.pricing.get(config.model)
+    cost: float | None = None
+    if pricing:
+        cost = (
+            (tokens_in / 1000) * pricing.in_per_1k
+            + (tokens_out / 1000) * pricing.out_per_1k
+        )
+
+    return {
+        "calls": calls,
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "cost": cost,
+        "duration_s": calls * _AVG_DURATION_PER_CALL_S,
+    }
+
+
+def _print_estimate(estimate: dict, model: str) -> None:
+    """Print the pre-flight estimate to stdout in a scannable format."""
+    cost_line = (
+        f"${estimate['cost']:.4f}"
+        if estimate["cost"] is not None
+        else f"unknown (no pricing for {model!r} in config.yaml)"
+    )
+    print()
+    print("Pre-flight estimate")
+    print(f"  LLM calls:           ~{estimate['calls']}")
+    print(
+        f"  Tokens:              "
+        f"~{estimate['tokens_in']:,} in / ~{estimate['tokens_out']:,} out"
+    )
+    print(f"  Estimated cost:      ~{cost_line}")
+    print(f"  Estimated duration:  ~{estimate['duration_s']:.0f}s")
+    print()
+
+
+def _confirm_proceed(
+    estimate: dict, args: argparse.Namespace, model: str,
+) -> bool:
+    """Print the estimate and return whether the run should proceed.
+
+    Returns False when ``--max-cost`` is set and would be exceeded, or
+    when the user (or piped stdin) declines the prompt. ``--yes`` skips
+    the prompt entirely.
+    """
+    _print_estimate(estimate, model)
+
+    if args.max_cost is not None:
+        if estimate["cost"] is None:
+            print(
+                f"error: --max-cost ${args.max_cost:.2f} was set, but no "
+                f"pricing for {model!r} is in config.yaml — cannot enforce "
+                f"the ceiling. Add a `pricing.{model}` entry or remove "
+                f"--max-cost.",
+                file=sys.stderr,
+            )
+            return False
+        if estimate["cost"] > args.max_cost:
+            print(
+                f"error: estimated cost ${estimate['cost']:.4f} exceeds "
+                f"--max-cost ${args.max_cost:.2f}. Aborting before any "
+                f"LLM call.",
+                file=sys.stderr,
+            )
+            return False
+
+    if args.yes:
+        print("Proceeding (--yes).")
+        return True
+
+    try:
+        reply = input("Proceed? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\nAborted by user.", file=sys.stderr)
+        return False
+    if reply in {"y", "yes"}:
+        return True
+    print("Aborted.", file=sys.stderr)
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI.
 
@@ -244,6 +391,14 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stderr,
     )
     logging.getLogger("issue_triage").setLevel(package_level)
+    # Attach the redaction filter to every handler currently on the
+    # root logger. The filter scrubs known credential env-var values
+    # from any record before it's emitted — defence in depth against
+    # third-party libraries accidentally surfacing request data in
+    # warnings or exception messages.
+    redactor = _RedactingFilter()
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(redactor)
 
     try:
         owner, repo = parse_repo_url(args.url)
@@ -295,11 +450,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: GitHub fetch failed: {exc}", file=sys.stderr)
         return 1
 
-    print(f"  §1 new issues:        {len(new_issues)}")
-    print(f"  §2 ongoing activity:  {len(ongoing_activity)}")
-    print()
+    print(f"  New issues this week:  {len(new_issues)}")
+    print(f"  Ongoing activity:      {len(ongoing_activity)}")
 
     if not new_issues and not ongoing_activity:
+        print()
         print("Nothing to brief on this week. Exiting cleanly.")
         return 0
 
@@ -315,7 +470,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    # 4. Run the pipeline.
+    # 4. Pre-flight estimate + consent. The cost surface is bounded by
+    # transparency, not truncation: the user sees the projected cost
+    # before any LLM call and confirms (or --yes skips the prompt;
+    # --max-cost aborts cleanly if a ceiling would be exceeded).
+    estimate = _estimate_run(len(new_issues), len(ongoing_activity), config)
+    if not _confirm_proceed(estimate, args, config.model):
+        return 1
+
+    # 5. Run the pipeline.
+    print()
     print("Running LLM pipeline...")
     try:
         brief = run_pipeline(
