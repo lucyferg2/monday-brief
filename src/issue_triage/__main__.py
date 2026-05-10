@@ -8,8 +8,7 @@ This module is intentionally small. It does four things:
 4. Hands off to the pipeline (later tasks; for now it prints what it
    would have done).
 
-Secrets (``GEMINI_API_KEY``, ``GITHUB_TOKEN``, ``OLLAMA_API_KEY``) are
-read from the process environment via ``os.getenv()`` at the point of
+Secrets are read from the process environment via ``os.getenv()`` at the point of
 use; the user sets them in their shell before running. The README
 documents which env vars to set per provider.
 
@@ -373,7 +372,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     # Logging set up early so any error after this point is surfaced
-    # consistently. The JSON-line formatter lands in T1.8.
+    # consistently. The format here is intentionally plain — a JSON-line
+    # formatter would help machine-readable log aggregation but isn't
+    # needed for a single-shot CLI.
     #
     # Provider-agnostic idiom for "show our logs but not the libraries'":
     # the root logger sits at WARNING by default, so any third-party
@@ -478,7 +479,8 @@ def main(argv: list[str] | None = None) -> int:
     if not _confirm_proceed(estimate, args, config.model):
         return 1
 
-    # 5. Run the pipeline.
+    # 5. Run the pipeline (categorise → prioritise → summarise → new_activity
+    # for ongoing entries → themes pass when §1 has ≥ 3 issues).
     print()
     print("Running LLM pipeline...")
     try:
@@ -496,8 +498,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: provider call failed: {exc}", file=sys.stderr)
         return 1
 
-    # 5. Render the four output files. The renderers are pure functions
-    # over the canonical Brief — no I/O. We do the file writing here.
+    # 6. Render the four output files. The renderers are pure functions
+    # over the canonical Brief — no I/O. The file writing happens here.
     #
     # Filenames are dated (UK format: DD-MM-YY) so they survive being
     # moved out of the date folder — a reviewer can tell at a glance

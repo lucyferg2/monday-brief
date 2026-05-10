@@ -13,8 +13,9 @@ This module defines the contract that every LLM provider conforms to:
   plus one entry in the registry below.
 
 Concrete implementations (``GeminiProvider``, ``OllamaProvider``)
-land in their own files in T1.3 and register themselves in
-``_REGISTRY`` at import time.
+live in their own files in this package and register themselves
+in ``_REGISTRY`` at import time (see the import at the bottom of
+this file).
 """
 
 from abc import ABC, abstractmethod
@@ -114,10 +115,10 @@ class ProviderError(RuntimeError):
 
 # --- The registry + factory --------------------------------------------
 
-# Concrete providers register themselves here. T1.3 will add ``"gemini"``
-# and ``"ollama"`` entries when the implementation files import this
-# module. Adding a third provider is one new file + one ``register()``
-# call — no edits to ``Config``, the CLI, or any other consumer.
+# Concrete providers register themselves here at import time (see the
+# eager imports at the bottom of this file). Adding a third provider is
+# one new file + one ``register()`` call — no edits to ``Config``, the
+# CLI, or any other consumer.
 _REGISTRY: dict[str, type[ModelProvider]] = {}
 
 
