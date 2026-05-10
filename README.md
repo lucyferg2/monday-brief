@@ -133,4 +133,15 @@ python -m issue_triage https://github.com/<owner>/<repo>
 
 The command takes one argument — the repo URL. The provider, model, lookback window and other knobs all come from `config.yaml`. CLI flags `--provider`, `--model`, `--lookback-days`, `--max-cost`, `--yes`, `--output-dir` exist as overrides for testing or scripting; you don't need them for normal runs.
 
+### Verifying the GitHub fetch
+
+GitHub's web UI doesn't directly distinguish "opened in the past N days" from "older issue with new comments in the past N days", which makes the §1 / §2 split hard to eyeball. `scripts/verify_fetch.py` runs the same fetch and prints each issue with timestamps and a clickable URL so the split can be checked manually:
+
+```bash
+python scripts/verify_fetch.py https://github.com/<owner>/<repo>          # default 7-day lookback
+python scripts/verify_fetch.py https://github.com/<owner>/<repo> 14       # 14-day lookback
+```
+
+Every §1 entry's `opened` timestamp should be after the printed cutoff; every §2 entry should be opened before the cutoff with at least one new comment after it.
+
 Examples and full flag reference will be added in [S1-T1.9](docs/planning/2026-S01/bl-10-05--10-05-2026.md#s1-t19--readme--writeup--ai-collaboration-log-docs).

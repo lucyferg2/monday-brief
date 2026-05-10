@@ -22,12 +22,29 @@ import logging
 import sys
 from pathlib import Path
 
+# Issue titles, comment bodies and LLM rationales contain Unicode
+# (emoji, non-ASCII names, code points outside cp1252). Force the CLI's
+# stdout/stderr to UTF-8 so the same code prints cleanly on Windows
+# PowerShell as well as POSIX shells. errors='replace' is a safety net
+# for the very rare unencodable byte; the alternative is a crash, which
+# isn't worth it for a console writer.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from issue_triage import __version__
 from issue_triage.config import (
     Config,
     InvalidRepoURL,
     load_config,
     parse_repo_url,
+)
+from issue_triage.github import (
+    GitHubClient,
+    GitHubError,
+    RateLimitError,
+    TooManyIssuesError,
 )
 
 
@@ -147,6 +164,13 @@ def main(argv: list[str] | None = None) -> int:
         format="%(message)s",
         stream=sys.stderr,
     )
+    # Quiet noisy third-party loggers — httpx logs every request at INFO
+    # by default, which clutters the user-facing output. Keep them at
+    # WARNING unless we're in --verbose mode (where the request trace
+    # is genuinely useful for debugging).
+    if not args.verbose:
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     try:
         owner, repo = parse_repo_url(args.url)
@@ -172,16 +196,36 @@ def main(argv: list[str] | None = None) -> int:
 
     config = _apply_overrides(config, args)
 
-    # T1.1 stops here. T1.2+ replace this block with the actual pipeline.
-    # The "intent" output goes to stdout so it's pipe-friendly; logs are
-    # on stderr.
+    # Run intent + fetch summary go to stdout (pipe-friendly); diagnostic
+    # logs go to stderr.
     print(f"issue-triage v{__version__}")
     print(f"  repo:     {owner}/{repo}")
     print(f"  provider: {config.provider}")
     print(f"  model:    {config.model}")
     print(f"  lookback: {config.lookback_days} days")
     print(f"  output:   {config.output_dir}")
-    print("(no work done — implementation lands per the S1 backlog)")
+    print()
+
+    # Fetch issues. Each known failure mode prints a clean line and exits 1.
+    try:
+        with GitHubClient(config) as gh:
+            new_issues, ongoing_activity = gh.fetch_issues(
+                owner, repo, config.lookback_days,
+            )
+    except RateLimitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except TooManyIssuesError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except GitHubError as exc:
+        print(f"error: GitHub fetch failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"  §1 new issues:        {len(new_issues)}")
+    print(f"  §2 ongoing activity:  {len(ongoing_activity)}")
+    print()
+    print("(fetch complete — LLM pipeline lands in T1.3+)")
     return 0
 
 
