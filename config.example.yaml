@@ -1,0 +1,62 @@
+# config.example.yaml
+# Copy this file to config.yaml and edit. config.yaml is gitignored
+# (it's per-deployment); config.example.yaml is the template.
+
+# --- Required: which LLM, which model -----------------------------------
+# `provider` matches an implementation registered under
+# src/issue_triage/providers/ — e.g. gemini, ollama. Adding a new
+# provider is one new file there plus a register() call; no edits
+# to this schema are required.
+provider: gemini
+model: gemini-2.0-flash
+
+# --- Time window + output (optional, defaults shown) --------------------
+
+# How many days back the past-week filter looks. §1 = opened in the past
+# N days; §2 = ongoing activity in the past N days. Bounded 1..365.
+# lookback_days: 7
+
+# Where reports are written. One sub-folder per run:
+#   <output_dir>/<YYYY-MM-DD>/<owner>__<repo>/
+# output_dir: reports
+
+# Pathological-case safety net. Halts before any LLM call if the GitHub
+# fetch returns more than this many issues — only fires for absurdly
+# busy repos. Not a feature cap; the per-week filter is what shapes the
+# output.
+# safety_max_issues: 1000
+
+# --- Per-call operational caps (single-call protection) -----------------
+
+# Cap a single LLM call's response length.
+# max_tokens_per_call: 4000
+
+# Per-request HTTP timeout (seconds).
+# request_timeout_s: 30.0
+
+# Number of retries on 5xx / transient failures (exponential backoff).
+# max_retries: 2
+
+# --- Categorisation taxonomy (override for your repo) -------------------
+# A docs-only repo wants different categories than a library. The
+# defaults below ship if you don't override here. The last entry is the
+# fallback when the LLM emits a category not in the configured set —
+# keep an "other" or equivalent at the end.
+#
+# categories:
+#   - { name: bug, description: "Something is broken or producing wrong output." }
+#   - { name: feature, description: "A request for new functionality." }
+#   - { name: question, description: "A user asking how to do something." }
+#   - { name: docs, description: "A documentation gap or correction." }
+#   - { name: other, description: "Anything that doesn't fit the above." }
+
+# --- Pricing (optional — only used for the pre-flight cost estimate) ----
+# Per-1k-token pricing in USD. Keys are model names; if your model isn't
+# listed, the pre-flight estimate prints "cost: unknown" and continues.
+# Verify against the provider's published pricing page — these are
+# placeholder examples.
+#
+# pricing:
+#   gemini-2.0-flash:
+#     in_per_1k: 0.000075
+#     out_per_1k: 0.0003

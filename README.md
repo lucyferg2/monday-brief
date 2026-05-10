@@ -88,23 +88,46 @@ issue-triage/
 
 ## Quick start (will be filled in once the build lands)
 
-```bash
-# Prerequisites: Python 3.10+, optionally GITHUB_TOKEN (for higher rate limit),
-# either GEMINI_API_KEY (for Gemini) or a running Ollama instance / Ollama Cloud key.
+**Prerequisites**: Python 3.10+ and one of:
 
-git clone <repo-url>
-cd issue-triage
+- a Gemini API key ([create one](https://aistudio.google.com/apikey))
+- a local [Ollama](https://ollama.com) install, or an Ollama Cloud key
+
+A `GITHUB_TOKEN` is optional but strongly recommended — without it, GitHub's anonymous rate limit of 60 req/hr can be exhausted by a single run on a busy repo.
+
+### Set up
+
+```bash
+git clone https://github.com/lucyferg2/monday-brief
+cd monday-brief
 pip install -e .
 
-# 1. Pick a provider in config.yaml — copy the example and edit:
+# Pick a provider in config.yaml — copy the example and edit:
 cp config.example.yaml config.yaml
-#    Open config.yaml, set:  provider: gemini  (or: ollama)  and  model: <name>
+#    Open config.yaml, set: provider: gemini (or: ollama) and model: <name>
+```
 
-# 2. Set credentials in .env:
-cp .env.example .env
-#    Fill in GEMINI_API_KEY (for Gemini) or OLLAMA_API_KEY (for Ollama Cloud).
+### Set the env vars in your shell
 
-# 3. Run:
+The tool reads credentials from environment variables — no `.env` file is loaded automatically. Set what you need before running:
+
+**PowerShell (Windows):**
+```powershell
+$env:GITHUB_TOKEN = "ghp_..."
+$env:GEMINI_API_KEY = "..."           # only if provider: gemini
+$env:OLLAMA_API_KEY = "..."           # only if Ollama Cloud / authed self-hosted
+```
+
+**bash / zsh (macOS, Linux):**
+```bash
+export GITHUB_TOKEN="ghp_..."
+export GEMINI_API_KEY="..."           # only if provider: gemini
+export OLLAMA_API_KEY="..."           # only if Ollama Cloud / authed self-hosted
+```
+
+### Run
+
+```bash
 python -m issue_triage https://github.com/<owner>/<repo>
 ```
 
